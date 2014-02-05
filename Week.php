@@ -1,6 +1,6 @@
 <?php
 
-class Model_Week {
+class Tnfp_Week {
     
     public $iWeekNumber = null;
     
@@ -36,7 +36,6 @@ class Model_Week {
         // by default the beginning of the week is the 'end' of the last block
         $this->sPreviousEndStamp = strtotime(date("Y")."W".$iWeekNumber." + 8 hour");
 
-        //$this->sCurrentStamp = strtotime("2013-09-06 16:05:00");
         $this->sCurrentStamp = strtotime(date("Y-m-d H:i:s"));
         
         // the end of the week in time (required to calc time between last transfer and end of week ( = last care block time)
