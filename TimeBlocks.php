@@ -1,58 +1,56 @@
 <?php
 
-class Tnfp_Week {
+class Tnfp_TimeBlocks {
     
-    public $iWeekNumber = null;
+    public $iWeekNumber = null;                 // the weeknumber for the current week
     
-    public $sCurrentStamp = null;
+    public $sCurrentPerson = null;              // the person who is the owner of the last transfer event
+    public $sCurrentStamp = null;               // the current time in timestamp
     
-    public $sCurrentPerson = null;
-    public $sCurrentStartStamp = null;
-    public $sCurrentEndStamp = null;
+    public $sCurrentStartStamp = null;          // start of current event in timestamp
+    public $sCurrentEndStamp = null;            // end of current event in timestamp
     
-    public $sCurrentEndTime = null;
-    public $sCurrentStartTime = null;
+    public $sCurrentEndTime = null;             // end of current event in time (H:i) format
+    public $sCurrentStartTime = null;           // start of current event in time (H:i) format
     
-    public $sThisPreviousPerson = null;
+    public $sPreviousEndStamp = null;           // the end time of the previous event in timestamp
+    public $sPreviousTransferEndStamp = null;   // the end time of the previous transfer event in timestamp
     
-    public $sPreviousEndStamp = null;
-    public $sPreviousTransferEndStamp = null;
-    public $sEndOfWeekStamp = null;
+    public $sEndOfWeekStamp = null;             // end of week time (sunday 20:00) in timestamp
     
-    public $aNights = array();
-    public $aDays = array();
-    public $aBlocks = array();
-    public $iCurrentBlockPosition = 0;
-    
-    public $sCalendarId = "";
-    
-    private $aOtherTypes = array('transfer','sport','school');
+    public $aNights = array();                  // array of nights between events
+    public $aBlocks = array();                  // array of timeblocks between events
+    public $iCurrentBlockPosition = 0;          // current position (int) the time block has in the blocks array
     
     public function __construct($iWeekNumber){
         
         $iWeekNumber = sprintf("%02s", $iWeekNumber);
-        $this->iWeekNumber = $iWeekNumber;
+        $this->iWeekNumber = (int) $iWeekNumber;
         
         // by default the beginning of the week is the 'end' of the last block
-        $this->sPreviousEndStamp = strtotime(date("Y")."W".$iWeekNumber." + 8 hour");
+        $this->sPreviousEndStamp = (string) strtotime(date("Y")."W".$iWeekNumber." + 8 hour");
 
-        $this->sCurrentStamp = strtotime(date("Y-m-d H:i:s"));
+        $this->sCurrentStamp = (string) strtotime(date("Y-m-d H:i:s"));
         
         // the end of the week in time (required to calc time between last transfer and end of week ( = last care block time)
-        $this->sEndOfWeekStamp = strtotime("2013W".(sprintf("%02s", $iWeekNumber+1))." + 8 hour");
+        $this->sEndOfWeekStamp = (string) strtotime("2013W".(sprintf("%02s", $iWeekNumber+1))." + 8 hour");
         
     }
     
-    public function getBlocks($aEvents,$sCalendarId){
+    /**
+     * provide events for the previous, current and next week.
+     * based on these events, the time between is calculated
+     * every event tagged as #transfer, will change the 'owner' of the time between
+     * @param array $aEvents
+     */
+    public function setTimeBlocksBetweenEvents(Array $aEvents){
         
-        $this->sCalendarId = $sCalendarId;
-        
-        $iEventsAmount = count($aEvents["current"])+1;
+        $iEventsAmount = (int) count($aEvents["current"])+1;
         
         // determine who has the care (based on the last event of the previous week)
         $aTransferEventLastWeek = $this->getLastTransferOfWeek($aEvents["previous"]);
         if(is_array($aTransferEventLastWeek)){
-            $this->sCurrentPerson = $aTransferEventLastWeek["title"];
+            $this->sCurrentPerson = (string) $aTransferEventLastWeek["title"];
         } else {
             $this->sCurrentPerson = null;
         }
@@ -142,16 +140,38 @@ class Tnfp_Week {
                 }
                 
             }
-            
-            
-             
+
         }
-        
-        return $this->aBlocks; 
         
     }
     
-    protected function storeCareTimeInBlock($sDiff,$bWrapAroundNow,$bEndOfWeek){
+    private function getLastTransferOfWeek($aEvents){
+        
+        $iEventAmount = count($aEvents);
+
+        if($iEventAmount > 0){
+
+            for($i = $iEventAmount; $i > 0; $i--){
+                if($aEvents[$i-1]["text"] == "#transfer"){
+                    $aTransferEvent = $aEvents[$i-1];
+                    return $aTransferEvent;
+                }
+            }
+
+        }
+
+        return false;
+        
+    }
+    
+    /**
+     * store the time in between two events in a block
+     * blocks are placed in the aBlocks property of the Week class
+     * @param string $sDiff
+     * @param boolean $bWrapAroundNow
+     * @param boolean $bEndOfWeek 
+     */
+    private function storeCareTimeInBlock($sDiff,$bWrapAroundNow,$bEndOfWeek){
         
         // subtract the night part (we dont show that)
         $sAmountOfDaysBetween = round($sDiff / (60*60*24));
@@ -192,7 +212,12 @@ class Tnfp_Week {
         
     }
     
-    public function storeEventInBlock($aEvent){
+    /**
+     * place the event in a block
+     * an event can be tagged as transfer, or an activity tagged as sport or school
+     * @param array $aEvent 
+     */
+    private function storeEventInBlock($aEvent){
         
         // calculate the transfer duration
         $sBlockMinutes = round(abs($this->sCurrentEndStamp - $this->sCurrentStartStamp) / 60,2);
@@ -230,87 +255,7 @@ class Tnfp_Week {
         
     }
     
-    public function processBlocksInDaysAndNights($aBlocks){
-        
-        $aDays = array();
-        $aNights = array();
-        $k = 0;
-        
-        for($i = 0; $i<7; $i++){
-            
-            $aDays[$i] = array();
-            $j = 0;    
-            
-            foreach($aBlocks AS $iBlock => $aBlock){
-
-                $iTotalStored = $this->calcPlaceToStore($aDays[$i]);
-                $iPlaceToStore = (12 * 60) - $iTotalStored;
-                
-                if($iPlaceToStore > 0){
-
-                    // calc how much minutes left to store in this day
-                    if($aBlock["minutes"] < $iPlaceToStore){
-
-                        $aBlock = array_shift($aBlocks);
-                        //unset($aBlocks[0]);
-                        $sMinutes = $aBlock["minutes"]; 
-
-                    } else {
-
-                        $sMinutes = $iPlaceToStore;
-                        $aBlocks[0]["minutes"] -= $iPlaceToStore;
-
-                    }
-                    
-                    // store minutes, type and location
-                    $aDays[$i][$j]["minutes"] = $sMinutes;
-                    $aDays[$i][$j]["type"] = $aBlock["type"];
-                    
-                    if(in_array($aBlock["type"],$this->aOtherTypes)){
-                        
-                        $aDays[$i][$j]["location"] = $aBlock["location"];
-                        $aDays[$i][$j]["title"] = $aBlock["title"];
-                        $aDays[$i][$j]["start"] = $aBlock["start"];
-                        $aDays[$i][$j]["end"] = $aBlock["end"];
-                        
-                    }
-
-                    // store the person
-                    if(isset($aBlock["person"])){
-                        $aDays[$i][$j]["person"] = $aBlock["person"];
-                    } else {
-                        $aDays[$i][$j]["person"] = "";
-                    }
-                    
-                    $j++;
-
-                } else {
-                    break;
-                }
-                
-                
-                
-            }
-                          
-        }
-        
-        $this->aDays = $aDays;
-        
-    }
-    
-    public function calcPlaceToStore($aDay){
-        
-        $iTotalStored = null;
-        
-        foreach($aDay AS $aBlock){
-            $iTotalStored += $aBlock["minutes"];
-        }
-        
-        return $iTotalStored;
-        
-    }
-    
-    protected function calcNights($bEndOfWeek,$bWrapAroundNow,$bCareEventIsNow){
+    private function calcNights($bEndOfWeek,$bWrapAroundNow,$bCareEventIsNow){
         
         $iNights = null;
         
@@ -344,7 +289,7 @@ class Tnfp_Week {
         
     }
     
-    public function calcNightsBetween($sPreviousTransferStamp,$sNextTransferStamp){
+    private function calcNightsBetween($sPreviousTransferStamp,$sNextTransferStamp){
         
         $sDateNow = date("Y-m-d H:i", $sPreviousTransferStamp);
         $sDateNext = date("Y-m-d H:i",  $sNextTransferStamp);
@@ -356,63 +301,14 @@ class Tnfp_Week {
         
     }
     
-    public function getFirstTransferOfWeek($iWeekNumber,$iAttempt = 0){
-        
-        // goes back maximum 3 weeks
-        if($iAttempt < 3){
-        
-            $oCalendar = new Model_Calendar($this->sCalendarId);
-            $aEvents = $oCalendar->getWeekEvents($iWeekNumber);
-
-            $iEventAmount = count($aEvents);
-            
-            if($iEventAmount > 0){
-                
-                for($i = 0; $i <= $iEventAmount; $i++){
-                    if(isset($aEvents[$i])){
-                        if($aEvents[$i]["text"] == "#transfer"){
-                            $aTransferEvent = $aEvents[$i];
-                            return $aTransferEvent;
-                        }
-                    }
-                }
-                
-            }
-                
-            if($iEventAmount == 0){
-                $iAttempt++;
-                $iWeekNumber--;
-                $aTransferEvent = $this->getFirstTransferOfWeek($iWeekNumber,$iAttempt);
-            }
-
-        
-        } else {
-            return false;
-        }
-        
-    }
-    
-    public function getLastTransferOfWeek($aEvents){
-        
-        
-        $iEventAmount = count($aEvents);
-
-        if($iEventAmount > 0){
-
-            for($i = $iEventAmount; $i > 0; $i--){
-                if($aEvents[$i-1]["text"] == "#transfer"){
-                    $aTransferEvent = $aEvents[$i-1];
-                    return $aTransferEvent;
-                }
-            }
-
-        }
-
-        return false;
-        
-    }
-    
-    public function splitBlockAroundNow($sAmountOfDaysBetween,$bEndOfWeek = false){
+    /**
+     * if the current moment, is in this time block
+     * then divide the time block in 3 parts (before, now and after)
+     * @param string $sAmountOfDaysBetween
+     * @param boolean $bEndOfWeek
+     * @return array $aBlocks
+     */
+    private function splitBlockAroundNow($sAmountOfDaysBetween,$bEndOfWeek = false){
         
         $aBlocks = array();
         
@@ -453,7 +349,11 @@ class Tnfp_Week {
         
     }
     
-    protected function isDuringDay(){
+    /**
+     * determine if the current set time (stamp) is during the day (between 08 and 20)
+     * @return boolean 
+     */
+    private function isDuringDay(){
         
         $sCurrentHour = date("H",$this->sCurrentStamp);
         
@@ -467,11 +367,11 @@ class Tnfp_Week {
     
     /**
      * we only want time between 08 and 20 hour, the rest is considered as night time and cut off
-     * @param type $sCurrentStartHour
-     * @param type $sCurrentEndHour
-     * @return boolean 
+     * @param string $sCurrentStartHour
+     * @param string $sCurrentEndHour
+     * @return boolean $bSetEvent 
      */
-    protected function cutOffNightTime($sCurrentStartHour,$sCurrentEndHour){
+    private function cutOffNightTime($sCurrentStartHour,$sCurrentEndHour){
         
         $bSetEvent = false;
         
